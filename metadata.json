@@ -1,0 +1,6 @@
+{
+  "name": "DreamHome AI",
+  "description": "AI-powered architectural design and 3D home generator. Turn natural language into interactive 3D procedural houses, 2D floor plans, and architectural specifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
