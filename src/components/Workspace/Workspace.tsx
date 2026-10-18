@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   HouseSpec,
   RoomSpec,
+  FurnitureItem,
   GuidedOptions,
   ValidationResult,
   ArchitecturalStyle,
@@ -10,6 +11,11 @@ import {
 } from '../../types/house';
 import { HouseViewer } from '../ThreeCanvas/HouseViewer';
 import { FloorPlanViewer } from '../FloorPlan/FloorPlanViewer';
+import { EnergyAnalysisPanel } from '../Energy/EnergyAnalysisPanel';
+import { MaterialsPanel } from '../Materials/MaterialsPanel';
+import { FurniturePanel } from '../Furniture/FurniturePanel';
+import { calculateEnergyAnalysis } from '../../lib/energyCalculator';
+import { TargetSurface } from '../../lib/materialsCatalog';
 import {
   Sparkles,
   Send,
@@ -32,6 +38,10 @@ import {
   DollarSign,
   Maximize,
   Compass,
+  Leaf,
+  Armchair,
+  Palette,
+  MessageSquare,
 } from 'lucide-react';
 
 interface WorkspaceProps {
@@ -57,10 +67,43 @@ export const Workspace: React.FC<WorkspaceProps> = ({
   onOpenShareModal,
 }) => {
   // Center View Mode
-  const [activeTab, setActiveTab] = useState<'3d' | '2d' | 'specs'>('3d');
+  const [activeTab, setActiveTab] = useState<'3d' | '2d' | 'specs' | 'energy'>('3d');
+
+  // Quick energy analysis for metric pills
+  const quickEnergy = calculateEnergyAnalysis(currentSpec);
 
   // Selected room for detailed inspection
   const [selectedRoom, setSelectedRoom] = useState<RoomSpec | null>(null);
+
+  // Right Panel Tab: AI chat, Furniture catalog & placement, or Materials swapper
+  const [rightPanelTab, setRightPanelTab] = useState<'chat' | 'furniture' | 'materials'>('chat');
+  const [activeSurface, setActiveSurface] = useState<TargetSurface>('facadePrimary');
+  const [activeFloor, setActiveFloor] = useState<number>(0);
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
+
+  // Furniture handlers
+  const handleAddFurniture = (item: FurnitureItem) => {
+    const nextList = [...(currentSpec.furniture || []), item];
+    onUpdateSpec({ ...currentSpec, furniture: nextList });
+    setSelectedFurnitureId(item.id);
+  };
+
+  const handleUpdateFurniture = (item: FurnitureItem) => {
+    const nextList = (currentSpec.furniture || []).map((f) => (f.id === item.id ? item : f));
+    onUpdateSpec({ ...currentSpec, furniture: nextList });
+  };
+
+  const handleDeleteFurniture = (id: string) => {
+    const nextList = (currentSpec.furniture || []).filter((f) => f.id !== id);
+    onUpdateSpec({ ...currentSpec, furniture: nextList });
+    if (selectedFurnitureId === id) setSelectedFurnitureId(null);
+  };
+
+  const handleClearFloorFurniture = (floor: number) => {
+    const nextList = (currentSpec.furniture || []).filter((f) => f.floor !== floor);
+    onUpdateSpec({ ...currentSpec, furniture: nextList });
+    setSelectedFurnitureId(null);
+  };
 
   // Left panel prompt input & guided options
   const [prompt, setPrompt] = useState('');
@@ -298,6 +341,18 @@ export const Workspace: React.FC<WorkspaceProps> = ({
             <FileSpreadsheet className="w-3.5 h-3.5" />
             <span>Specs Sheet</span>
           </button>
+          <button
+            onClick={() => setActiveTab('energy')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+              activeTab === 'energy'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-slate-400 hover:text-emerald-300 hover:bg-slate-700/60'
+            }`}
+            title="Window-to-Wall ratio, roof thermal profile, and climate energy rating"
+          >
+            <Leaf className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Energy Analysis</span>
+          </button>
         </div>
 
         {/* Right Header Controls: Save, Share */}
@@ -523,6 +578,22 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               <span>Estimated Cost</span>
               <span className="font-semibold text-emerald-400">{currentSpec.stats.estimatedCostRange}</span>
             </div>
+            <div
+              onClick={() => setActiveTab('energy')}
+              className="flex justify-between items-center text-slate-400 pt-1.5 border-t border-slate-700/50 cursor-pointer hover:text-emerald-300 transition-colors group"
+              title="Click to view full Energy Analysis"
+            >
+              <span className="flex items-center gap-1.5 text-[11px]">
+                <Leaf className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                <span>Energy Rating</span>
+              </span>
+              <span className="font-bold text-emerald-300 flex items-center gap-1 text-[11px]">
+                <span className="px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-[10px]">
+                  Grade {quickEnergy.ratingLetter}
+                </span>
+                <span>({quickEnergy.score}/100)</span>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -533,8 +604,16 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               <HouseViewer
                 spec={currentSpec}
                 selectedRoomId={selectedRoom?.id}
+                selectedFurnitureId={selectedFurnitureId}
+                activeSurface={activeSurface}
+                onSelectSurface={(surface) => {
+                  setActiveSurface(surface);
+                  setRightPanelTab('materials');
+                }}
                 onSelectRoom={(room) => setSelectedRoom(room)}
+                onSelectFurniture={(item) => setSelectedFurnitureId(item?.id || null)}
                 onUpdateSpec={(updated) => onUpdateSpec(updated)}
+                onOpenMaterials={() => setRightPanelTab('materials')}
               />
             </div>
           )}
@@ -544,7 +623,17 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               <FloorPlanViewer
                 spec={currentSpec}
                 selectedRoomId={selectedRoom?.id}
+                selectedFurnitureId={selectedFurnitureId}
                 onSelectRoom={(room) => setSelectedRoom(room)}
+                onSelectFurniture={(f) => {
+                  setSelectedFurnitureId(f?.id || null);
+                  if (f) setRightPanelTab('furniture');
+                }}
+                onAddFurniture={handleAddFurniture}
+                onUpdateFurniture={handleUpdateFurniture}
+                onDeleteFurniture={handleDeleteFurniture}
+                activeFloorOverride={activeFloor}
+                onFloorChange={(lvl) => setActiveFloor(lvl)}
               />
             </div>
           )}
@@ -617,110 +706,191 @@ export const Workspace: React.FC<WorkspaceProps> = ({
               </div>
             </div>
           )}
+
+          {activeTab === 'energy' && (
+            <div className="w-full h-full">
+              <EnergyAnalysisPanel
+                spec={currentSpec}
+                onApplyOptimization={(instruction) => {
+                  handleRefine(instruction);
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* RIGHT PANEL: Refinement Chat & Selected Room Inspector */}
-        <div className="w-full lg:w-84 lg:min-w-[330px] bg-slate-900/95 border-l border-slate-800 flex flex-col overflow-hidden">
-          {/* Header */}
-          <div className="p-3.5 border-b border-slate-800 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-indigo-400" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">AI Refinement Chat</h3>
+        {/* RIGHT PANEL: Refinement Chat, Furniture, or Materials */}
+        <div className="w-full lg:w-96 lg:min-w-[360px] bg-slate-900/95 border-l border-slate-800 flex flex-col overflow-hidden">
+          {/* Header with 3 Tab Switchers: Chat | Furniture | Materials */}
+          <div className="p-2 border-b border-slate-800 bg-slate-900/90 flex items-center justify-between gap-1">
+            <div className="flex items-center gap-1 bg-slate-800/80 p-0.5 rounded-xl flex-1">
+              <button
+                onClick={() => setRightPanelTab('chat')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  rightPanelTab === 'chat'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
+                <span>AI Refine</span>
+              </button>
+
+              <button
+                onClick={() => setRightPanelTab('furniture')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  rightPanelTab === 'furniture'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Armchair className="w-3.5 h-3.5 text-amber-300" />
+                <span>Furniture</span>
+                {(currentSpec.furniture?.length || 0) > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-900 text-indigo-300 font-mono">
+                    {currentSpec.furniture?.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setRightPanelTab('materials')}
+                className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                  rightPanelTab === 'materials'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5 text-sky-300" />
+                <span>Materials</span>
+              </button>
             </div>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800">
-              Live Retain
-            </span>
           </div>
 
-          {/* Selected Room Inspector Banner if active */}
-          {selectedRoom && (
-            <div className="p-3 bg-indigo-950/40 border-b border-indigo-900/50 text-xs">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-bold text-white flex items-center gap-1.5">
-                  <Box className="w-3.5 h-3.5 text-indigo-400" />
-                  {selectedRoom.name}
-                </span>
-                <button
-                  onClick={() => setSelectedRoom(null)}
-                  className="text-slate-400 hover:text-white text-xs"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
-                <p>Area: <span className="text-white font-semibold">{(selectedRoom.width * selectedRoom.depth).toFixed(1)} m²</span></p>
-                <p>Level: <span className="text-white font-semibold">Floor {selectedRoom.floor}</span></p>
-                <p>Width: <span className="text-white font-semibold">{selectedRoom.width}m</span></p>
-                <p>Depth: <span className="text-white font-semibold">{selectedRoom.depth}m</span></p>
-              </div>
+          {/* TAB 1: FURNITURE PANEL */}
+          {rightPanelTab === 'furniture' && (
+            <div className="flex-1 overflow-hidden">
+              <FurniturePanel
+                furniture={currentSpec.furniture || []}
+                activeFloor={activeFloor}
+                selectedFurnitureId={selectedFurnitureId}
+                onSelectFurniture={(item) => setSelectedFurnitureId(item?.id || null)}
+                onAddFurniture={handleAddFurniture}
+                onUpdateFurniture={handleUpdateFurniture}
+                onDeleteFurniture={handleDeleteFurniture}
+                onClearFloorFurniture={handleClearFloorFurniture}
+              />
             </div>
           )}
 
-          {/* Chat Message Stream */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {chatMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-              >
-                <div
-                  className={`max-w-[90%] p-2.5 rounded-2xl text-xs leading-relaxed ${
-                    msg.sender === 'user'
-                      ? 'bg-indigo-600 text-white rounded-tr-none'
-                      : 'bg-slate-800 border border-slate-700/60 text-slate-200 rounded-tl-none shadow-sm'
-                  }`}
-                >
-                  {msg.text}
-                </div>
-                <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp}</span>
-              </div>
-            ))}
-            {isRefining && (
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700 text-xs text-indigo-300">
-                <Sparkles className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                <span>Incorporating refinement into model...</span>
-              </div>
-            )}
-          </div>
-
-          {/* Quick Refinement Pills */}
-          <div className="p-2 border-t border-slate-800 bg-slate-900/60 flex flex-nowrap overflow-x-auto gap-1.5 scrollbar-none">
-            {QUICK_REFINEMENTS.map((chip, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleRefine(chip)}
-                className="whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-indigo-200 transition-colors"
-              >
-                + {chip}
-              </button>
-            ))}
-          </div>
-
-          {/* Chat Input Field */}
-          <div className="p-3 border-t border-slate-800 bg-slate-900">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleRefine();
-              }}
-              className="flex items-center gap-2"
-            >
-              <input
-                type="text"
-                value={refineInput}
-                onChange={(e) => setRefineInput(e.target.value)}
-                placeholder="Ask to modify: 'Make roof sloped', 'Add balcony'..."
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+          {/* TAB 2: MATERIALS PANEL */}
+          {rightPanelTab === 'materials' && (
+            <div className="flex-1 overflow-hidden">
+              <MaterialsPanel
+                spec={currentSpec}
+                selectedRoom={selectedRoom}
+                activeSurface={activeSurface}
+                onSelectSurface={(surface) => setActiveSurface(surface)}
+                onUpdateSpec={(updated) => onUpdateSpec(updated)}
               />
-              <button
-                type="submit"
-                disabled={isRefining || !refineInput.trim()}
-                className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-all shadow-sm"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
-          </div>
+            </div>
+          )}
+
+          {/* TAB 3: AI REFINEMENT CHAT */}
+          {rightPanelTab === 'chat' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Selected Room Inspector Banner if active */}
+              {selectedRoom && (
+                <div className="p-3 bg-indigo-950/40 border-b border-indigo-900/50 text-xs">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <Box className="w-3.5 h-3.5 text-indigo-400" />
+                      {selectedRoom.name}
+                    </span>
+                    <button
+                      onClick={() => setSelectedRoom(null)}
+                      className="text-slate-400 hover:text-white text-xs"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-300">
+                    <p>Area: <span className="text-white font-semibold">{(selectedRoom.width * selectedRoom.depth).toFixed(1)} m²</span></p>
+                    <p>Level: <span className="text-white font-semibold">Floor {selectedRoom.floor}</span></p>
+                    <p>Width: <span className="text-white font-semibold">{selectedRoom.width}m</span></p>
+                    <p>Depth: <span className="text-white font-semibold">{selectedRoom.depth}m</span></p>
+                  </div>
+                </div>
+              )}
+
+              {/* Chat Message Stream */}
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {chatMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
+                  >
+                    <div
+                      className={`max-w-[90%] p-2.5 rounded-2xl text-xs leading-relaxed ${
+                        msg.sender === 'user'
+                          ? 'bg-indigo-600 text-white rounded-tr-none'
+                          : 'bg-slate-800 border border-slate-700/60 text-slate-200 rounded-tl-none shadow-sm'
+                      }`}
+                    >
+                      {msg.text}
+                    </div>
+                    <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp}</span>
+                  </div>
+                ))}
+                {isRefining && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-800/60 border border-slate-700 text-xs text-indigo-300">
+                    <Sparkles className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                    <span>Incorporating refinement into model...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Refinement Pills */}
+              <div className="p-2 border-t border-slate-800 bg-slate-900/60 flex flex-nowrap overflow-x-auto gap-1.5 scrollbar-none">
+                {QUICK_REFINEMENTS.map((chip, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => handleRefine(chip)}
+                    className="whitespace-nowrap px-2.5 py-1 rounded-full text-[10px] bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-indigo-200 transition-colors"
+                  >
+                    + {chip}
+                  </button>
+                ))}
+              </div>
+
+              {/* Chat Input Field */}
+              <div className="p-3 border-t border-slate-800 bg-slate-900">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleRefine();
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    value={refineInput}
+                    onChange={(e) => setRefineInput(e.target.value)}
+                    placeholder="Ask to modify: 'Make roof sloped', 'Add balcony'..."
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isRefining || !refineInput.trim()}
+                    className="p-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-40 transition-all shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

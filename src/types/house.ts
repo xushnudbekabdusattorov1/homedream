@@ -41,6 +41,8 @@ export interface RoomSpec {
   floorMaterial: 'hardwood' | 'tile' | 'marble' | 'polished_concrete' | 'carpet' | 'decking';
   wallMaterial: 'white_plaster' | 'warm_wood' | 'exposed_concrete' | 'brick' | 'stone' | 'painted_charcoal';
   connectedTo?: string[]; // IDs of connected rooms
+  textureType?: string;
+  [key: string]: unknown;
 }
 
 export interface DoorSpec {
@@ -72,6 +74,8 @@ export interface RoofSpec {
   overhang: number; // overhang in meters (e.g. 0.4 - 0.8m)
   color: string;
   material: 'dark_slate' | 'terracotta' | 'standing_seam_metal' | 'concrete_slab' | 'green_roof';
+  textureType?: string;
+  [key: string]: unknown;
 }
 
 export interface ExteriorSpec {
@@ -100,6 +104,13 @@ export interface MaterialPalette {
   windowFrame: { color: string };
   roofColor: string;
   trimColor: string;
+  facadePrimaryTexture?: string;
+  facadeSecondaryTexture?: string;
+  roofTexture?: string;
+  floorTexture?: string;
+  patioTexture?: string;
+  patioColor?: string;
+  [key: string]: unknown;
 }
 
 export interface HouseStats {
@@ -110,6 +121,43 @@ export interface HouseStats {
   bathroomCount: number;
   floorCount: number;
   estimatedCostRange: string;
+}
+
+export type FurnitureCategory = 'living' | 'bedroom' | 'dining' | 'office' | 'kitchen' | 'bathroom';
+
+export type FurnitureType =
+  | 'sofa_3seater'
+  | 'sofa_sectional'
+  | 'armchair'
+  | 'coffee_table'
+  | 'tv_unit'
+  | 'dining_table'
+  | 'kitchen_island'
+  | 'bistro_table'
+  | 'bed_king'
+  | 'bed_queen'
+  | 'nightstand'
+  | 'wardrobe'
+  | 'office_desk'
+  | 'bookshelf'
+  | 'bathtub'
+  | 'double_vanity';
+
+export interface FurnitureItem {
+  id: string;
+  type: FurnitureType;
+  name: string;
+  category: FurnitureCategory;
+  floor: number; // 0, 1, etc.
+  x: number; // meters from house origin
+  z: number; // meters from house origin
+  rotation: number; // degrees: 0, 90, 180, 270
+  width: number; // meters
+  depth: number; // meters
+  height: number; // meters
+  color?: string; // hex color or finish
+  material?: string; // 'fabric' | 'wood' | 'marble' | 'leather' | 'metal'
+  roomId?: string;
 }
 
 export interface HouseSpec {
@@ -131,6 +179,7 @@ export interface HouseSpec {
   materials: MaterialPalette;
   stats: HouseStats;
   tags: string[];
+  furniture?: FurnitureItem[];
 }
 
 export interface ProjectItem {

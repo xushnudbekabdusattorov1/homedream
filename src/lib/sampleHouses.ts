@@ -228,6 +228,14 @@ export const SAMPLE_HOUSES: HouseSpec[] = [
       estimatedCostRange: '$340,000 - $480,000 USD',
     },
     tags: ['Modern', 'Warm Wood', 'Concrete', 'Swimming Pool', 'Double Story', 'Minimalist'],
+    furniture: [
+      { id: 'f1', type: 'sofa_sectional', name: 'L-Shaped Sectional Sofa', category: 'living', floor: 0, x: -3.0, z: 2.5, rotation: 0, width: 2.8, depth: 2.1, height: 0.82, color: '#334155', material: 'fabric', roomId: 'r_living' },
+      { id: 'f2', type: 'coffee_table', name: 'Minimalist Coffee Table', category: 'living', floor: 0, x: -2.8, z: 1.2, rotation: 0, width: 1.2, depth: 0.65, height: 0.42, color: '#d4a373', material: 'wood', roomId: 'r_living' },
+      { id: 'f3', type: 'dining_table', name: '6-Seater Dining Set', category: 'dining', floor: 0, x: -2.5, z: -3.0, rotation: 0, width: 1.9, depth: 0.95, height: 0.76, color: '#a16207', material: 'wood', roomId: 'r_dining' },
+      { id: 'f4', type: 'kitchen_island', name: 'Island with Bar Stools', category: 'kitchen', floor: 0, x: 4.5, z: 2.0, rotation: 90, width: 2.4, depth: 1.05, height: 0.92, color: '#f8fafc', material: 'marble', roomId: 'r_kitchen' },
+      { id: 'f5', type: 'bed_king', name: 'King Platform Bed', category: 'bedroom', floor: 1, x: -3.0, z: 2.2, rotation: 0, width: 2.0, depth: 2.15, height: 0.95, color: '#e2e8f0', material: 'fabric', roomId: 'r_master' },
+      { id: 'f6', type: 'bathtub', name: 'Freestanding Soaking Tub', category: 'bathroom', floor: 1, x: -3.0, z: -2.5, rotation: 90, width: 1.7, depth: 0.8, height: 0.62, color: '#ffffff', material: 'marble', roomId: 'r_master_bath' },
+    ],
   },
   {
     id: 'nordic-fjord-haven',

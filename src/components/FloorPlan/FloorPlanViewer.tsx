@@ -1,22 +1,62 @@
-import React, { useRef, useState } from 'react';
-import { HouseSpec, RoomSpec } from '../../types/house';
-import { Download, FileText, Image as ImageIcon, ZoomIn, ZoomOut, Compass } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { HouseSpec, RoomSpec, FurnitureItem } from '../../types/house';
+import {
+  Download,
+  FileText,
+  Image as ImageIcon,
+  ZoomIn,
+  ZoomOut,
+  Compass,
+  RotateCw,
+  Trash2,
+  Move,
+  Armchair,
+  Layers,
+} from 'lucide-react';
 import { jsPDF } from 'jspdf';
 
 interface FloorPlanViewerProps {
   spec: HouseSpec;
   selectedRoomId?: string | null;
+  selectedFurnitureId?: string | null;
   onSelectRoom?: (room: RoomSpec | null) => void;
+  onSelectFurniture?: (furniture: FurnitureItem | null) => void;
+  onAddFurniture?: (item: FurnitureItem) => void;
+  onUpdateFurniture?: (item: FurnitureItem) => void;
+  onDeleteFurniture?: (id: string) => void;
+  activeFloorOverride?: number;
+  onFloorChange?: (floor: number) => void;
 }
 
 export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
   spec,
   selectedRoomId,
+  selectedFurnitureId,
   onSelectRoom,
+  onSelectFurniture,
+  onAddFurniture,
+  onUpdateFurniture,
+  onDeleteFurniture,
+  activeFloorOverride,
+  onFloorChange,
 }) => {
-  const [activeFloor, setActiveFloor] = useState<number>(0);
+  const [activeFloor, setActiveFloor] = useState<number>(activeFloorOverride ?? 0);
   const [zoom, setZoom] = useState<number>(1);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [draggingFurniture, setDraggingFurniture] = useState<{ id: string; offsetX: number; offsetZ: number } | null>(null);
+
   const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    if (activeFloorOverride !== undefined && activeFloorOverride !== activeFloor) {
+      setActiveFloor(activeFloorOverride);
+    }
+  }, [activeFloorOverride]);
+
+  const handleFloorSwitch = (lvl: number) => {
+    setActiveFloor(lvl);
+    onFloorChange?.(lvl);
+  };
 
   const plotW = spec.plot.width || 24;
   const plotD = spec.plot.depth || 30;
@@ -29,6 +69,69 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
   const originY = svgHeight / 2;
 
   const currentRooms = spec.rooms.filter((r) => r.floor === activeFloor);
+  const floorFurniture = (spec.furniture || []).filter((f) => f.floor === activeFloor);
+
+  // Drag and Drop handling for Furniture from Catalog
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDragOver) setIsDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    try {
+      const rawData = e.dataTransfer.getData('application/json');
+      if (!rawData) return;
+      const item = JSON.parse(rawData);
+
+      if (!svgRef.current) return;
+      const rect = svgRef.current.getBoundingClientRect();
+      const dropSvgX = (e.clientX - rect.left) / zoom;
+      const dropSvgY = (e.clientY - rect.top) / zoom;
+      const worldX = (dropSvgX - originX) / scale;
+      const worldZ = (dropSvgY - originY) / scale;
+
+      // Check containing room
+      const room = currentRooms.find((r) => {
+        const halfW = r.width / 2;
+        const halfD = r.depth / 2;
+        return (
+          worldX >= r.x - halfW &&
+          worldX <= r.x + halfW &&
+          worldZ >= r.z - halfD &&
+          worldZ <= r.z + halfD
+        );
+      });
+
+      const newFurniture: FurnitureItem = {
+        id: 'furn-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        type: item.type,
+        name: item.name,
+        category: item.category,
+        floor: activeFloor,
+        x: parseFloat(worldX.toFixed(2)),
+        z: parseFloat(worldZ.toFixed(2)),
+        rotation: 0,
+        width: item.width,
+        depth: item.depth,
+        height: item.height,
+        color: item.defaultColor,
+        material: item.defaultMaterial,
+        roomId: room?.id,
+      };
+
+      onAddFurniture?.(newFurniture);
+      onSelectFurniture?.(newFurniture);
+    } catch (err) {
+      console.error('Drop error:', err);
+    }
+  };
 
   // SVG Export
   const downloadSVG = () => {
@@ -53,7 +156,7 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
     const image = new Image();
     image.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width = svgWidth * 2; // high-res
+      canvas.width = svgWidth * 2;
       canvas.height = svgHeight * 2;
       const ctx = canvas.getContext('2d');
       if (ctx) {
@@ -96,7 +199,6 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
         const pdfWidth = pdf.internal.pageSize.getWidth();
         const pdfHeight = pdf.internal.pageSize.getHeight();
 
-        // Architectural Header
         pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(20);
         pdf.setTextColor(20, 24, 33);
@@ -112,12 +214,10 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
         );
         pdf.text(`Style: ${spec.style} | Livable Area: ${spec.stats.livableArea} m² | Generated by DreamHome AI`, 40, 76);
 
-        // Border divider
         pdf.setDrawColor(226, 232, 240);
         pdf.setLineWidth(1);
         pdf.line(40, 85, pdfWidth - 40, 85);
 
-        // Draw image in center
         const imgW = pdfWidth - 80;
         const imgH = (svgHeight / svgWidth) * imgW;
         const displayH = Math.min(imgH, pdfHeight - 160);
@@ -126,7 +226,6 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
 
         pdf.addImage(pngURL, 'JPEG', startX, 95, displayW, displayH);
 
-        // Footer
         pdf.setFontSize(8);
         pdf.setTextColor(148, 163, 184);
         pdf.text('CONFIDENTIAL ARCHITECTURAL SPECIFICATION — FOR SCHEMATIC & PLANNING PURPOSES ONLY', 40, pdfHeight - 20);
@@ -135,6 +234,187 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
       }
     };
     image.src = blobURL;
+  };
+
+  // Render 2D Top-Down Architectural Furniture
+  const renderFurnitureItem = (f: FurnitureItem) => {
+    const isSelected = selectedFurnitureId === f.id;
+    const fx = originX + f.x * scale;
+    const fy = originY + f.z * scale;
+    const fw = f.width * scale;
+    const fd = f.depth * scale;
+
+    const rot = f.rotation || 0;
+
+    return (
+      <g
+        key={f.id}
+        transform={`translate(${fx}, ${fy}) rotate(${rot})`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelectFurniture?.(f);
+        }}
+        className="cursor-pointer group"
+      >
+        {/* Selection glow */}
+        {isSelected && (
+          <rect
+            x={-fw / 2 - 4}
+            y={-fd / 2 - 4}
+            width={fw + 8}
+            height={fd + 8}
+            fill="none"
+            stroke="#6366f1"
+            strokeWidth="2"
+            strokeDasharray="4 2"
+            rx="4"
+          />
+        )}
+
+        {/* Dynamic Architectural Geometry by Type */}
+        {f.type.startsWith('sofa') && (
+          <g>
+            {/* Main sofa body */}
+            <rect
+              x={-fw / 2}
+              y={-fd / 2}
+              width={fw}
+              height={fd}
+              fill="#e2e8f0"
+              stroke="#475569"
+              strokeWidth="1.5"
+              rx="3"
+            />
+            {/* Backrest */}
+            <rect
+              x={-fw / 2}
+              y={-fd / 2}
+              width={fw}
+              height={fd * 0.3}
+              fill="#cbd5e1"
+              stroke="#475569"
+              strokeWidth="1.2"
+              rx="2"
+            />
+            {/* Armrests */}
+            <rect x={-fw / 2} y={-fd / 2} width={fw * 0.12} height={fd} fill="#cbd5e1" stroke="#475569" strokeWidth="1" />
+            <rect x={fw / 2 - fw * 0.12} y={-fd / 2} width={fw * 0.12} height={fd} fill="#cbd5e1" stroke="#475569" strokeWidth="1" />
+            {/* Cushion divider lines */}
+            <line x1={-fw * 0.16} y1={-fd / 2 + fd * 0.3} x2={-fw * 0.16} y2={fd / 2} stroke="#64748b" strokeWidth="1" />
+            <line x1={fw * 0.16} y1={-fd / 2 + fd * 0.3} x2={fw * 0.16} y2={fd / 2} stroke="#64748b" strokeWidth="1" />
+          </g>
+        )}
+
+        {f.type === 'armchair' && (
+          <g>
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd} fill="#f1f5f9" stroke="#475569" strokeWidth="1.5" rx="4" />
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd * 0.35} fill="#e2e8f0" stroke="#475569" strokeWidth="1.2" rx="2" />
+            <rect x={-fw / 2} y={-fd / 2} width={fw * 0.18} height={fd} fill="#e2e8f0" stroke="#475569" strokeWidth="1" />
+            <rect x={fw / 2 - fw * 0.18} y={-fd / 2} width={fw * 0.18} height={fd} fill="#e2e8f0" stroke="#475569" strokeWidth="1" />
+          </g>
+        )}
+
+        {f.type.startsWith('bed') && (
+          <g>
+            {/* Bed Frame & Mattress */}
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd} fill="#f8fafc" stroke="#334155" strokeWidth="1.8" rx="2" />
+            {/* Headboard */}
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd * 0.14} fill="#475569" stroke="#1e293b" strokeWidth="1.5" />
+            {/* Pillows */}
+            <rect x={-fw / 2 + fw * 0.1} y={-fd / 2 + fd * 0.16} width={fw * 0.35} height={fd * 0.22} fill="#ffffff" stroke="#94a3b8" strokeWidth="1" rx="2" />
+            <rect x={fw / 2 - fw * 0.45} y={-fd / 2 + fd * 0.16} width={fw * 0.35} height={fd * 0.22} fill="#ffffff" stroke="#94a3b8" strokeWidth="1" rx="2" />
+            {/* Blanket fold */}
+            <line x1={-fw / 2} y1={fd * 0.05} x2={fw / 2} y2={fd * 0.05} stroke="#cbd5e1" strokeWidth="1.2" />
+          </g>
+        )}
+
+        {f.type === 'coffee_table' && (
+          <g>
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd} fill="#fef3c7" stroke="#b45309" strokeWidth="1.2" rx="2" />
+            <text x="0" y="3" textAnchor="middle" fontSize="8" fill="#92400e" fontFamily="sans-serif">Table</text>
+          </g>
+        )}
+
+        {f.type === 'dining_table' && (
+          <g>
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd} fill="#fed7aa" stroke="#c2410c" strokeWidth="1.5" rx="3" />
+            {/* Chairs */}
+            {[-fw * 0.3, 0, fw * 0.3].map((cx, idx) => (
+              <React.Fragment key={idx}>
+                <rect x={cx - 5} y={-fd / 2 - 6} width={10} height={5} fill="#fb923c" stroke="#9a3412" strokeWidth="1" rx="1" />
+                <rect x={cx - 5} y={fd / 2 + 1} width={10} height={5} fill="#fb923c" stroke="#9a3412" strokeWidth="1" rx="1" />
+              </React.Fragment>
+            ))}
+          </g>
+        )}
+
+        {f.type === 'bathtub' && (
+          <g>
+            <rect x={-fw / 2} y={-fd / 2} width={fw} height={fd} fill="#f1f5f9" stroke="#0284c7" strokeWidth="1.5" rx="4" />
+            <ellipse cx="0" cy="0" rx={fw * 0.42} ry={fd * 0.38} fill="#e0f2fe" stroke="#0369a1" strokeWidth="1.2" />
+            <circle cx={-fw * 0.3} cy="0" r="2" fill="#0284c7" />
+          </g>
+        )}
+
+        {/* Default fallback furniture representation */}
+        {!f.type.startsWith('sofa') &&
+          f.type !== 'armchair' &&
+          !f.type.startsWith('bed') &&
+          f.type !== 'coffee_table' &&
+          f.type !== 'dining_table' &&
+          f.type !== 'bathtub' && (
+            <g>
+              <rect
+                x={-fw / 2}
+                y={-fd / 2}
+                width={fw}
+                height={fd}
+                fill="#f1f5f9"
+                stroke="#475569"
+                strokeWidth="1.2"
+                rx="2"
+              />
+              <text x="0" y="3" textAnchor="middle" fontSize="7" fill="#475569" fontFamily="sans-serif">
+                {f.name.split(' ')[0]}
+              </text>
+            </g>
+          )}
+
+        {/* Small rotation / delete controls floating next to selected item */}
+        {isSelected && (
+          <g transform={`translate(${fw / 2 + 8}, ${-fd / 2})`}>
+            {/* Rotate Button */}
+            <g
+              onClick={(e) => {
+                e.stopPropagation();
+                const nextRot = (f.rotation + 90) % 360;
+                onUpdateFurniture?.({ ...f, rotation: nextRot });
+              }}
+              className="hover:scale-125 transition-transform"
+            >
+              <circle cx="8" cy="0" r="9" fill="#4f46e5" stroke="#ffffff" strokeWidth="1.5" />
+              <text x="8" y="3" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
+                ↻
+              </text>
+            </g>
+
+            {/* Delete Button */}
+            <g
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteFurniture?.(f.id);
+              }}
+              className="hover:scale-125 transition-transform"
+            >
+              <circle cx="8" cy="22" r="9" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
+              <text x="8" y="25" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
+                ✕
+              </text>
+            </g>
+          </g>
+        )}
+      </g>
+    );
   };
 
   return (
@@ -146,7 +426,7 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
           {spec.floors.map((fl) => (
             <button
               key={fl.level}
-              onClick={() => setActiveFloor(fl.level)}
+              onClick={() => handleFloorSwitch(fl.level)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeFloor === fl.level
                   ? 'bg-indigo-600 text-white shadow-sm'
@@ -209,8 +489,22 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
         </div>
       </div>
 
-      {/* SVG Canvas Area */}
-      <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950/70 select-none">
+      {/* SVG Canvas Area with Drop Target */}
+      <div
+        className="flex-1 overflow-auto p-6 flex items-center justify-center bg-slate-950/70 select-none relative"
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        {isDragOver && (
+          <div className="absolute inset-0 bg-indigo-600/15 border-2 border-dashed border-indigo-400 z-30 pointer-events-none flex items-center justify-center backdrop-blur-[1px]">
+            <div className="px-4 py-2 rounded-xl bg-indigo-900/90 text-white font-semibold text-xs shadow-xl flex items-center gap-2">
+              <Armchair className="w-4 h-4 text-indigo-300" />
+              <span>Drop Furniture to Place in Room</span>
+            </div>
+          </div>
+        )}
+
         <div
           style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.15s ease-out' }}
           className="shadow-2xl rounded-xl bg-white p-6 border border-slate-200"
@@ -222,17 +516,18 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
             viewBox={`0 0 ${svgWidth} ${svgHeight}`}
             xmlns="http://www.w3.org/2000/svg"
             className="max-w-none"
+            onClick={() => {
+              onSelectRoom?.(null);
+              onSelectFurniture?.(null);
+            }}
           >
             <defs>
-              {/* Architectural Grid pattern */}
               <pattern id="archGrid" width={scale} height={scale} patternUnits="userSpaceOnUse">
                 <path d={`M ${scale} 0 L 0 0 0 ${scale}`} fill="none" stroke="#f1f5f9" strokeWidth="1" />
               </pattern>
-              {/* Hatch pattern for outdoor patio */}
               <pattern id="patioHatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
                 <line x1="0" y1="0" x2="0" y2="8" stroke="#cbd5e1" strokeWidth="1.5" />
               </pattern>
-              {/* Pool water pattern */}
               <linearGradient id="poolGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#bae6fd" />
                 <stop offset="100%" stopColor="#38bdf8" />
@@ -346,8 +641,11 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
               return (
                 <g
                   key={room.id}
-                  onClick={() => onSelectRoom?.(room)}
-                  className="cursor-pointer transition-all hover:opacity-90"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectRoom?.(room);
+                  }}
+                  className="cursor-pointer transition-all hover:opacity-95"
                 >
                   {/* Room Interior Polygon */}
                   <rect
@@ -391,8 +689,6 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
                     y2={ry - 6}
                     stroke="#94a3b8"
                     strokeWidth="1"
-                    markerStart="url(#tick)"
-                    markerEnd="url(#tick)"
                   />
                   <text
                     x={rx + rw / 2}
@@ -405,37 +701,25 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
                     {room.width.toFixed(1)}m
                   </text>
 
-                  {/* Window architectural indications */}
+                  {/* Window architectural cuts */}
                   {roomWindows.map((win) => {
                     const winW = win.width * scale;
                     const winOffset = (win.offset || 0.5) * scale;
-                    let wx = rx;
-                    let wy = ry;
                     let lineX1 = 0, lineY1 = 0, lineX2 = 0, lineY2 = 0;
 
                     if (win.wall === 'north') {
-                      wx = rx + winOffset;
-                      wy = ry;
-                      lineX1 = wx; lineY1 = wy; lineX2 = wx + winW; lineY2 = wy;
+                      lineX1 = rx + winOffset; lineY1 = ry; lineX2 = rx + winOffset + winW; lineY2 = ry;
                     } else if (win.wall === 'south') {
-                      wx = rx + winOffset;
-                      wy = ry + rh;
-                      lineX1 = wx; lineY1 = wy; lineX2 = wx + winW; lineY2 = wy;
+                      lineX1 = rx + winOffset; lineY1 = ry + rh; lineX2 = rx + winOffset + winW; lineY2 = ry + rh;
                     } else if (win.wall === 'west') {
-                      wx = rx;
-                      wy = ry + winOffset;
-                      lineX1 = wx; lineY1 = wy; lineX2 = wx; lineY2 = wy + winW;
+                      lineX1 = rx; lineY1 = ry + winOffset; lineX2 = rx; lineY2 = ry + winOffset + winW;
                     } else if (win.wall === 'east') {
-                      wx = rx + rw;
-                      wy = ry + winOffset;
-                      lineX1 = wx; lineY1 = wy; lineX2 = wx; lineY2 = wy + winW;
+                      lineX1 = rx + rw; lineY1 = ry + winOffset; lineX2 = rx + rw; lineY2 = ry + winOffset + winW;
                     }
 
                     return (
                       <g key={win.id}>
-                        {/* Cutout line */}
                         <line x1={lineX1} y1={lineY1} x2={lineX2} y2={lineY2} stroke="#ffffff" strokeWidth="4" />
-                        {/* Double glass lines */}
                         <line x1={lineX1} y1={lineY1} x2={lineX2} y2={lineY2} stroke="#0284c7" strokeWidth="2.5" />
                       </g>
                     );
@@ -445,16 +729,14 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
                   {roomDoors.map((door) => {
                     const doorW = door.width * scale;
                     const doorOffset = (door.offset || 0.5) * scale;
-                    let dx = rx + doorOffset;
-                    let dy = ry;
 
                     if (door.wall === 'north') {
-                      dx = rx + doorOffset;
-                      dy = ry;
+                      const dx = rx + doorOffset;
+                      const dy = ry;
                       return (
                         <g key={door.id}>
                           <line x1={dx} y1={dy} x2={dx + doorW} y2={dy} stroke="#ffffff" strokeWidth="4" />
-                          <line x1={dx} y1={dy} x2={dx} y2={dy + doorW} stroke="#78350f" strokeWidth="2" />
+                          <line x1={dx} y1={dy} x2={dx + doorW} y2={dy} stroke="#78350f" strokeWidth="2" />
                           <path
                             d={`M ${dx} ${dy + doorW} A ${doorW} ${doorW} 0 0 0 ${dx + doorW} ${dy}`}
                             fill="none"
@@ -465,12 +747,12 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
                         </g>
                       );
                     } else if (door.wall === 'south') {
-                      dx = rx + doorOffset;
-                      dy = ry + rh;
+                      const dx = rx + doorOffset;
+                      const dy = ry + rh;
                       return (
                         <g key={door.id}>
                           <line x1={dx} y1={dy} x2={dx + doorW} y2={dy} stroke="#ffffff" strokeWidth="4" />
-                          <line x1={dx} y1={dy} x2={dx} y2={dy - doorW} stroke="#78350f" strokeWidth="2" />
+                          <line x1={dx} y1={dy} x2={dx + doorW} y2={dy} stroke="#78350f" strokeWidth="2" />
                           <path
                             d={`M ${dx} ${dy - doorW} A ${doorW} ${doorW} 0 0 1 ${dx + doorW} ${dy}`}
                             fill="none"
@@ -486,6 +768,9 @@ export const FloorPlanViewer: React.FC<FloorPlanViewerProps> = ({
                 </g>
               );
             })}
+
+            {/* Furniture Layer (Rendered on top of floor slabs) */}
+            {floorFurniture.map((f) => renderFurnitureItem(f))}
 
             {/* Compass Rose Arrow */}
             <g transform={`translate(${svgWidth - 65}, 65)`}>
